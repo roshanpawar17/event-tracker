@@ -212,7 +212,7 @@ The library is completely framework-agnostic. Below are guides to integrate it i
 #### 1. Include/Install the Library
 Install via NPM (if published) or copy the library into your `src/core/tracking` folder. Alternatively, you can include the CDN link in your `src/index.html` file inside the `<head>` tag:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@main/dist/event-tracker.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@main/dist/user-event-tracker.umd.js"></script>
 ```
 
 #### 2. Initialize the Tracker (Service)
@@ -559,7 +559,7 @@ export class BuildListResultsComponent {
 #### 1. Include/Install the Library
 Install via NPM (if published) or include the CDN link in your `public/index.html` file inside the `<head>` tag:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@main/dist/event-tracker.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@main/dist/user-event-tracker.umd.js"></script>
 ```
 
 #### 2. Added Tracking Configuration
@@ -757,7 +757,7 @@ function LoginButton() {
 #### 1. Include/Install the Library
 Install via NPM (if published) or include the CDN link in your `public/index.html` (or `index.html`) file inside the `<head>` tag:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@main/dist/event-tracker.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@main/dist/user-event-tracker.umd.js"></script>
 ```
 
 #### 2. Added Tracking Configuration
@@ -900,7 +900,7 @@ If built using Vite/Webpack as a UMD or IIFE bundle, the library exposes a globa
 <html lang="en">
 <head>
   <!-- Load from CDN -->
-  <script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-trackermain/dist/event-tracker.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-trackermain/dist/user-event-tracker.umd.js"></script>
 </head>
 <body>
   <button id="login-submit-btn">Login</button>
