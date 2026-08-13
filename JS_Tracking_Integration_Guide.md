@@ -25,8 +25,8 @@ The library relies on various properties to configure behavior, manage state, an
 | `getPageViewProperties`| `function` | No | `(route) => ({})` | A callback to dynamically attach custom properties to a page view event based on the route. |
 | `extractDynamicProperties`| `function`| No | `(element, props, event) => {}`| A callback invoked when a tracked element is clicked. Allows injecting dynamic data (like `data-value`) into the event payload. |
 | `getSessionId` | `function` | No | *(Reads from localStorage)* | Callback to retrieve the active session ID. Must return a string or null. |
-| `buildPayload` | `function` | No | *(Generates standard schema)*| Formats the final event payload before queueing. Return `null` to drop the event. |
-| `elementEventMap` | `object` | No | `{}` | A dictionary mapping target IDs to specific event names and static properties. |
+| `buildPayload` | `function` | Yes | *(Generates standard schema)*| Formats the final event payload before queueing. Return `null` to drop the event. |
+| `elementEventMap` | `object` | Yes | `{}` | A dictionary mapping target IDs to specific event names and static properties. |
 
 ### Internal State Properties
 
