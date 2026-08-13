@@ -469,7 +469,7 @@ export const TRACKING_CONFIG = {
 
 ```
 
-#### 9. Get dynamic value using custom attribute-name
+#### 7. Get dynamic value using custom attribute-name
 
 ```html
 <!-- build-list-new.component.html -->
@@ -491,7 +491,28 @@ getQuickFilterValuesJSON(key: string): string {
 }
 ```
 
-#### 11. Dynamic add/track event
+#### 7.1 Get dynamic value using custom attribute-name
+
+```typescript
+// In Config will recieved data in traking.config.ts
+
+export const TRACKING_CONFIG = {
+
+  extractDynamicProperties: (element: any, properties: any, event: Event) => {
+
+    // Get dynamic properties from the element
+    if (properties.chip_type !== undefined) {
+      properties.chip_type = element.getAttribute('data-chip-type') || '';
+    }
+    if (properties.chip_value !== undefined) {
+      const attr = element.getAttribute('data-chip-value');
+      try { properties.chip_value = attr ? JSON.parse(attr) : []; } catch(e) { properties.chip_value = attr || []; }
+    }
+  }
+}
+```
+
+#### 8. Dynamic add/track event
 
 ```typescript
 // build-list-result.component.ts
@@ -528,24 +549,7 @@ export class BuildListResultsComponent {
 }
 ```
 
-
-```typescript
-// In Config will recieved data in traking.config.ts
-
-extractDynamicProperties: (element: any, properties: any, event: Event) => {
-
-  // Get dynamic properties from the element
-  if (properties.chip_type !== undefined) {
-    properties.chip_type = element.getAttribute('data-chip-type') || '';
-  }
-  if (properties.chip_value !== undefined) {
-    const attr = element.getAttribute('data-chip-value');
-    try { properties.chip_value = attr ? JSON.parse(attr) : []; } catch(e) { properties.chip_value = attr || []; }
-  }
-}
-```
-
-#### 12. Angular Integration AI Prompt
+#### 9. Angular Integration AI Prompt
 > "I have a framework-agnostic UserEventTracker library. Please create an Angular `EventTrackerService` (providedIn: 'root') that imports this library. It should instantiate the tracker with a custom configuration only if `isPlatformBrowser` is true. Hook into the Angular `Router` to call `tracker.trackPageView(url)` on `NavigationEnd`. Ensure `tracker.stop()` is called in `ngOnDestroy`. Update my HTML templates to include `data-track-id` attributes for all buttons and update the config's `elementEventMap` to match."
 
 ---
