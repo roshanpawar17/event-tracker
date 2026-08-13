@@ -212,7 +212,7 @@ The library is completely framework-agnostic. Below are guides to integrate it i
 #### 1. Include/Install the Library
 Install via NPM (if published) or copy the library into your `src/core/tracking` folder. Alternatively, you can include the CDN link in your `src/index.html` file inside the `<head>` tag:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-trackermain/dist/event-tracker.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@main/dist/event-tracker.umd.js"></script>
 ```
 
 #### 2. Initialize the Tracker (Service)
@@ -223,34 +223,66 @@ Create a root-level service. Ensure initialization only happens in the browser c
 import { Injectable, inject, PLATFORM_ID, OnDestroy } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Router, NavigationEnd } from '@angular/router';
-import { filter } from 'rxjs';
-import { UserEventTracker } from 'event-tracker-lib';
-import { TRACKING_CONFIG } from './tracking.config';
+import { filter } from 'rxjs/operators';
+import { TRACKING_CONFIG } from '../config/tracking.config';
 
-@Injectable({ providedIn: 'root' })
+@Injectable({
+  providedIn: 'root'
+})
 export class EventTrackerService implements OnDestroy {
-  private platformId = inject(PLATFORM_ID);
-  private router = inject(Router);
-  public tracker: any = null;
+  private readonly platformId = inject(PLATFORM_ID);
+  private readonly router = inject(Router);
+  private tracker: any;
 
   constructor() {
+    // Only initialize the tracker in the browser (important if using SSR)
     if (isPlatformBrowser(this.platformId)) {
-      this.tracker = new UserEventTracker(TRACKING_CONFIG);
-      this.tracker.start();
-      this.setupPageTracking();
+      const EventTracker = (window as any).EventTracker;
+      if (EventTracker) {
+        this.tracker = new EventTracker.UserEventTracker(TRACKING_CONFIG);
+        this.tracker.start();
+        this.setupPageTracking();
+      } else {
+        console.warn('EventTracker not found on window. Ensure CDN script is loaded.');
+      }
     }
   }
 
+  /**
+   * Tracks a manual custom event
+   */
+  trackEvent(eventName: string, properties: Record<string, any> = {}): void {
+    if (this.tracker) {
+      this.tracker.trackEvent(eventName, properties);
+    }
+  }
+
+  /**
+   * Tracks a session expiration/logout, instantly flushing the event queue
+   */
+  trackSessionExpired(eventName: string, endReason: string, message: string): void {
+    if (this.tracker) {
+      this.tracker.trackSessionExpired(eventName, endReason, message);
+    }
+  }
+
+  /**
+   * Automatically track screen views on Angular Route changes
+   */
   private setupPageTracking() {
     this.router.events.pipe(
-      filter(event => event instanceof NavigationEnd)
+      filter((event): event is NavigationEnd => event instanceof NavigationEnd)
     ).subscribe((event: NavigationEnd) => {
-      this.tracker?.trackPageView(event.urlAfterRedirects);
+      if (this.tracker) {
+        this.tracker.trackPageView(event.urlAfterRedirects, 'screen_viewed', {});
+      }
     });
   }
 
   ngOnDestroy() {
-    this.tracker?.stop();
+    if (this.tracker) {
+      this.tracker.stop();
+    }
   }
 }
 ```
@@ -259,9 +291,261 @@ export class EventTrackerService implements OnDestroy {
 ```html
 <!-- login.component.html -->
 <button data-track-id="login-submit-btn" (click)="login()">Login</button>
+<button mat-raised-button color="primary" aria-label="Submit Time Entry" [disabled]="isSaving || timeLogFormGroup.invalid" (click)="createTimeEntry(true)">Save</button>
+
 ```
 
-#### 4. Angular Integration AI Prompt
+#### 4. App Initialization: Injected EventTrackerService into app.component.ts to ensure it automatically initializes and starts tracking screen changes when the application loads.
+
+```typescript
+// app.component.ts
+import { Component, inject } from '@angular/core';
+import { EventTrackerService } from './core/tracking/event-tracker.service';
+
+@Component({
+  selector: 'app-root',
+  templateUrl: './app.component.html',
+  styleUrls: ['./app.component.css']
+})
+export class AppComponent {
+  private readonly eventTrackerService = inject(EventTrackerService);
+}
+```
+
+#### 5. Session Management & Explicit Tracking: (If need to integrate sessionId for analytics tracking)
+
+1) Login: In login.component.ts, I updated the successful authentication block to establish a unique X-Session-ID (either from the backend or generating one via crypto.randomUUID()) to localStorage. I also explicitly fire a user_logged_in event.
+
+```typescript
+// login.component.ts
+import { EventTrackerService } from '../core/services/event-tracker.service';
+
+@Component({
+    selector: 'app-login',
+    templateUrl: './login.component.html',
+    styleUrls: ['./login.component.scss'],
+    changeDetection: ChangeDetectionStrategy.Eager,
+    standalone: false
+})
+export class LoginComponent implements OnInit {
+  eventTrackerService = inject(EventTrackerService);
+
+  authorizeUser(hrmsUser) {
+    const data = {
+      firstName: hrmsUser?.firstName,
+      lastName: hrmsUser?.lastName,
+      token: hrmsUser?.token,
+    };
+    // Authentication API call
+    this.loginService.userAuth(data).subscribe({
+      next: (response) => {
+        if (response?.data) {
+          const user = response.data.user;
+          const UserData: UserInfo = {
+            userId: user._id,
+            email: user.emailAddress,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            hrmsUserId: user.hrmsUserId,
+            token: response.data.token,
+            redmineApiKey: '',
+            jiraProjectsInfo: [],
+            level: user.level,
+            userLevelPermissions: response['data']['user'][
+              'levelBasedPermissions'
+            ].sort((a, b) => {
+              return a.order - b.order;
+            }),
+          };
+          
+          // Generate Session ID 
+          let sessionId = response?.data?.sessionId;
+          if (!sessionId && window.crypto && window.crypto.randomUUID) {
+            sessionId = window.crypto.randomUUID();
+          } else if (!sessionId) {
+            sessionId = new Date().getTime().toString();
+          }
+          localStorage.setItem('X-Session-ID', sessionId);
+          
+          this.userDetailsService.setUserData(UserData);
+          this.eventTrackerService.trackEvent('user_logged_in', { role: user.level });
+        }
+      },
+      error: (error) => {
+        this.messageSnackbarService.showMessage(
+          'Error: Please try again later.',
+          SnackbarEnums.ERROR
+        );
+      },
+      complete: () => {
+        this.router.navigate([
+          `/stt/${this.userDetailsService.userInfo.userLevelPermissions[0]['url']}`,
+        ]);
+      },
+    });
+  }
+}
+
+```
+
+2) Logout: In user-details.service.ts, inside the setUserOnLogout method, I've ensured eventTracker.trackSessionExpired() is called and that the X-Session-ID gets cleaned up appropriately.
+
+```typescript
+// user-details.service.ts
+import { EventTrackerService } from '../services/event-tracker.service';
+
+@Injectable({
+  providedIn: 'root',
+})
+export class UserDetailsService {
+  private eventTracker = inject(EventTrackerService);
+
+  setUserOnLogout() {
+    this.eventTracker.trackSessionExpired(
+      'session_ended', 
+      'manual_logout', 
+      'User logged out manually'
+    );
+    localStorage.removeItem('X-Session-ID');
+    this.userInfo = undefined;
+    localStorage.removeItem('ssiUser');
+  }
+
+}
+```
+
+#### 6. Added Tracking Configuration: Created src/app/core/config/tracking.config.ts configured precisely for your application, using environment.BACKEND_BASE_URL as the host.
+
+```typescript
+// traking.config.ts
+
+import { environment } from '../../../environments/environment';
+
+export const TRACKING_CONFIG = {
+  // Backend API endpoint for receiving tracking batches
+  apiUrl: environment.BACKEND_BASE_URL + 'services/app/UserEvent/UserEventTracking',
+  
+  // Batch processing settings
+  batchSize: 5,
+  
+  // Session Header configuration
+  sessionHeaderKey: 'X-Session-ID',
+  getSessionId: () => localStorage.getItem('X-Session-ID'),
+
+  extractDynamicProperties: (element: any, properties: any, event: Event) => {
+
+    // Get dynamic properties from the element
+    if (properties.chip_type !== undefined) {
+      properties.chip_type = element.getAttribute('data-chip-type') || '';
+    }
+    if (properties.chip_value !== undefined) {
+      const attr = element.getAttribute('data-chip-value');
+      try { properties.chip_value = attr ? JSON.parse(attr) : []; } catch(e) { properties.chip_value = attr || []; }
+    }
+  }
+  
+  // Payload builder specific to the backend schema
+  buildPayload: (eventName: string, properties: any) => ({
+    eventName: eventName,
+    occurredAtUtc: new Date().toISOString(),
+    sessionId: localStorage.getItem('X-Session-ID') || undefined,
+    route: window.location.pathname,
+    screenVariant: 'ssi-time-tracker-web',
+    properties: properties
+  }),
+  
+  // Automatic mapping of DOM interactions to tracking events
+  // Elements need a matching data-track-id (or default configured attribute)
+  elementEventMap: {
+    'login_submitted': [{ targetId: 'login-submit-btn', properties: {} }],
+    'time_entry_saved': [{ targetId: 'save-time-entry-btn', properties: {} }],
+    'test_button_clicked': [{ targetId: 'test-button', properties: { button: '' } }] // in button will get dynamic text only add property button:'' or card: '' or label: '' 
+    // Add other generic mapped events here as needed
+    "quick_filter_chip_clicked": [
+      { targetId: "time-tracker-quick-filter-chip", properties: { chip_type: '', chip_value: [] } }
+    ],
+  }
+};
+
+```
+
+#### 9. Get dynamic value using custom attribute-name
+
+```html
+<!-- build-list-new.component.html -->
+<div [tourAnchor]="first ? 'quick-filter-chip' : null" class="quick-filter-chip flex-row align-items-center" 
+      [id]="TargetId.QUICK_FILTER_CHIP"
+      [attr.data-chip-type]="quickFilterGroups[key].title"
+      [attr.data-chip-value]="getQuickFilterValuesJSON(key)"
+      (click)="applyQuickFilter(key)"
+      >
+  <span class="chip-dot"></span>
+  {{ quickFilterGroups[key].title }}
+</div>
+```
+
+```typescript
+// build-list-new.component.html
+getQuickFilterValuesJSON(key: string): string {
+  return JSON.stringify(this.quickFilterGroups[key]?.values || []);
+}
+```
+
+#### 11. Dynamic add/track event
+
+```typescript
+// build-list-result.component.ts
+
+@Component({
+  selector: 'app-build-list-results',
+  templateUrl: './build-list-results.component.html',
+  styleUrl: './build-list-results.component.scss'
+})
+export class BuildListResultsComponent {
+
+  constructor(
+    private eventTrackerService: EventTrackerService,
+  ) {}
+
+  onTabChange(tabIndex: number) {
+    const previousIndex = this.index;
+    if (previousIndex === tabIndex) return;
+    this.index = tabIndex;
+    
+    const tabNames = ['Account', 'Contacts', 'Map'];
+    const targetIds = [TargetId.ACCOUNT_TAB, TargetId.CONTACTS_TAB, TargetId.MAP_TAB];
+    
+    this.eventTrackerService.trackEvent(EventName.RESULTS_TAB_SWITCHED, {
+      targetId: targetIds[tabIndex] || TargetId.ACCOUNT_TAB,
+      to_tab: tabNames[tabIndex] || 'Account',
+      from_tab: tabNames[previousIndex] || 'Account'
+    });
+
+    // Clear map filters but avoid triggering immediate searchMap if switching TO the map tab
+    // to prevent MapComponent from crashing before Leaflet is initialized.
+    this.clearMapFilters(previousIndex === 2);
+  }
+}
+```
+
+
+```typescript
+// In Config will recieved data in traking.config.ts
+
+extractDynamicProperties: (element: any, properties: any, event: Event) => {
+
+  // Get dynamic properties from the element
+  if (properties.chip_type !== undefined) {
+    properties.chip_type = element.getAttribute('data-chip-type') || '';
+  }
+  if (properties.chip_value !== undefined) {
+    const attr = element.getAttribute('data-chip-value');
+    try { properties.chip_value = attr ? JSON.parse(attr) : []; } catch(e) { properties.chip_value = attr || []; }
+  }
+}
+```
+
+#### 12. Angular Integration AI Prompt
 > "I have a framework-agnostic UserEventTracker library. Please create an Angular `EventTrackerService` (providedIn: 'root') that imports this library. It should instantiate the tracker with a custom configuration only if `isPlatformBrowser` is true. Hook into the Angular `Router` to call `tracker.trackPageView(url)` on `NavigationEnd`. Ensure `tracker.stop()` is called in `ngOnDestroy`. Update my HTML templates to include `data-track-id` attributes for all buttons and update the config's `elementEventMap` to match."
 
 ---
@@ -271,35 +555,84 @@ export class EventTrackerService implements OnDestroy {
 #### 1. Include/Install the Library
 Install via NPM (if published) or include the CDN link in your `public/index.html` file inside the `<head>` tag:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-trackermain/dist/event-tracker.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@main/dist/event-tracker.umd.js"></script>
 ```
 
-#### 2. Initialize the Tracker (Custom Hook & Context)
+#### 2. Added Tracking Configuration
+Create `tracking.config.ts` configured for your application.
+
+```typescript
+// src/config/tracking.config.ts
+export const TRACKING_CONFIG = {
+  apiUrl: 'https://api.yourdomain.com/track',
+  batchSize: 5,
+  sessionHeaderKey: 'X-Session-ID',
+  getSessionId: () => localStorage.getItem('X-Session-ID'),
+  
+  extractDynamicProperties: (element: any, properties: any, event: Event) => {
+    if (properties.chip_type !== undefined) {
+      properties.chip_type = element.getAttribute('data-chip-type') || '';
+    }
+    if (properties.chip_value !== undefined) {
+      const attr = element.getAttribute('data-chip-value');
+      try { properties.chip_value = attr ? JSON.parse(attr) : []; } catch(e) { properties.chip_value = attr || []; }
+    }
+  },
+
+  buildPayload: (eventName: string, properties: any) => ({
+    eventName,
+    occurredAtUtc: new Date().toISOString(),
+    sessionId: localStorage.getItem('X-Session-ID') || undefined,
+    route: window.location.pathname,
+    screenVariant: 'react-web-app',
+    properties
+  }),
+  
+  elementEventMap: {
+    'login_submitted': [{ targetId: 'login-submit-btn', properties: {} }],
+    'time_entry_saved': [{ targetId: 'save-time-entry-btn', properties: {} }],
+    'quick_filter_chip_clicked': [
+      { targetId: "time-tracker-quick-filter-chip", properties: { chip_type: '', chip_value: [] } }
+    ]
+  }
+};
+```
+
+#### 3. Initialize the Tracker (Custom Hook & Context)
 
 ```tsx
-// TrackingProvider.tsx
-import React, { createContext, useEffect, useRef } from 'react';
+// src/core/tracking/TrackingProvider.tsx
+import React, { createContext, useEffect, useRef, useContext } from 'react';
 import { useLocation } from 'react-router-dom';
-import { UserEventTracker } from 'event-tracker-lib';
-import { TRACKING_CONFIG } from './tracking.config';
+import { TRACKING_CONFIG } from '../../config/tracking.config';
 
-export const TrackingContext = createContext(null);
+export const TrackingContext = createContext<any>(null);
+export const useTracking = () => useContext(TrackingContext);
 
-export const TrackingProvider = ({ children }) => {
-  const trackerRef = useRef(null);
+export const TrackingProvider = ({ children }: { children: React.ReactNode }) => {
+  const trackerRef = useRef<any>(null);
   const location = useLocation();
 
   useEffect(() => {
     if (!trackerRef.current && typeof window !== 'undefined') {
-      trackerRef.current = new UserEventTracker(TRACKING_CONFIG);
-      trackerRef.current.start();
+      const EventTracker = (window as any).EventTracker;
+      if (EventTracker) {
+        trackerRef.current = new EventTracker.UserEventTracker(TRACKING_CONFIG);
+        trackerRef.current.start();
+      } else {
+        console.warn('EventTracker not found on window. Ensure CDN script is loaded.');
+      }
     }
-    return () => trackerRef.current?.stop();
+    return () => {
+      if (trackerRef.current) trackerRef.current.stop();
+    };
   }, []);
 
   // React Router Page Tracking
   useEffect(() => {
-    trackerRef.current?.trackPageView(location.pathname);
+    if (trackerRef.current) {
+      trackerRef.current.trackPageView(location.pathname, 'screen_viewed', {});
+    }
   }, [location]);
 
   return (
@@ -310,15 +643,108 @@ export const TrackingProvider = ({ children }) => {
 };
 ```
 
-#### 3. Adding Target IDs
+#### 4. App Initialization
+Wrap your application with the provider in `App.tsx`:
+```tsx
+import { TrackingProvider } from './core/tracking/TrackingProvider';
+
+function App() {
+  return (
+    <TrackingProvider>
+      <YourAppComponents />
+    </TrackingProvider>
+  );
+}
+```
+
+#### 5. Session Management & Explicit Tracking
+
+**Login:**
+```tsx
+import { useTracking } from '../core/tracking/TrackingProvider';
+
+export function Login() {
+  const tracker = useTracking();
+
+  const handleLogin = async () => {
+    // Generate Session ID 
+    let sessionId = '';
+    if (window.crypto && window.crypto.randomUUID) {
+      sessionId = window.crypto.randomUUID();
+    } else {
+      sessionId = new Date().getTime().toString();
+    }
+    localStorage.setItem('X-Session-ID', sessionId);
+    
+    if (tracker) {
+      tracker.trackEvent('user_logged_in', { role: 'admin' });
+    }
+  };
+
+  return <button onClick={handleLogin}>Login</button>;
+}
+```
+
+**Logout:**
+```tsx
+import { useTracking } from '../core/tracking/TrackingProvider';
+
+export function Logout() {
+  const tracker = useTracking();
+
+  const handleLogout = () => {
+    if (tracker) {
+      tracker.trackSessionExpired('session_ended', 'manual_logout', 'User logged out manually');
+    }
+    localStorage.removeItem('X-Session-ID');
+  };
+
+  return <button onClick={handleLogout}>Logout</button>;
+}
+```
+
+#### 6. Get dynamic value using custom attribute-name
+```tsx
+export function FilterChip({ title, values }: { title: string, values: any[] }) {
+  return (
+    <div 
+      id="time-tracker-quick-filter-chip"
+      data-chip-type={title}
+      data-chip-value={JSON.stringify(values)}
+    >
+      {title}
+    </div>
+  );
+}
+```
+
+#### 7. Dynamic add/track event
+```tsx
+export function TabSwitcher() {
+  const tracker = useTracking();
+  
+  const handleTabChange = (newTab: string, oldTab: string) => {
+    if (tracker) {
+      tracker.trackEvent('results_tab_switched', {
+        to_tab: newTab,
+        from_tab: oldTab
+      });
+    }
+  };
+  
+  return <button onClick={() => handleTabChange('Map', 'Account')}>Switch to Map</button>;
+}
+```
+
+#### 8. Adding Target IDs
 ```tsx
 function LoginButton() {
   return <button data-track-id="login-submit-btn">Login</button>;
 }
 ```
 
-#### 4. React Integration AI Prompt
-> "Create a React `TrackingProvider` component that wraps my application. Inside it, initialize `UserEventTracker` using a `useRef` and a `useEffect` hook to ensure it runs only on the client. Use React Router's `useLocation` hook inside another `useEffect` to trigger `trackPageView(location.pathname)` whenever the route changes. Provide the tracker instance via React Context. Also, review my components and add `data-track-id` attributes to interactive elements."
+#### 9. React Integration AI Prompt
+> "Create a React `TrackingProvider` component that wraps my application. Inside it, initialize `UserEventTracker` using a `useRef` and a `useEffect` hook to ensure it runs only on the client. Use React Router's `useLocation` hook inside another `useEffect` to trigger `trackPageView(location.pathname)` whenever the route changes. Provide the tracker instance via React Context. Also, review my components and add `data-track-id` attributes to interactive elements. Provide Login and Logout flows that update `X-Session-ID` in localStorage and trigger session tracking."
 
 ---
 
@@ -330,24 +756,63 @@ Install via NPM (if published) or include the CDN link in your `public/index.htm
 <script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@main/dist/event-tracker.umd.js"></script>
 ```
 
-#### 2. Initialize the Tracker (Vue Plugin)
+#### 2. Added Tracking Configuration
+```javascript
+// src/config/tracking.config.js
+export const TRACKING_CONFIG = {
+  apiUrl: 'https://api.yourdomain.com/track',
+  batchSize: 5,
+  sessionHeaderKey: 'X-Session-ID',
+  getSessionId: () => localStorage.getItem('X-Session-ID'),
+  
+  extractDynamicProperties: (element, properties, event) => {
+    if (properties.chip_type !== undefined) {
+      properties.chip_type = element.getAttribute('data-chip-type') || '';
+    }
+    if (properties.chip_value !== undefined) {
+      const attr = element.getAttribute('data-chip-value');
+      try { properties.chip_value = attr ? JSON.parse(attr) : []; } catch(e) { properties.chip_value = attr || []; }
+    }
+  },
+
+  buildPayload: (eventName, properties) => ({
+    eventName,
+    occurredAtUtc: new Date().toISOString(),
+    sessionId: localStorage.getItem('X-Session-ID') || undefined,
+    route: window.location.pathname,
+    screenVariant: 'vue-web-app',
+    properties
+  }),
+  
+  elementEventMap: {
+    'login_submitted': [{ targetId: 'login-submit-btn', properties: {} }]
+  }
+};
+```
+
+#### 3. Initialize the Tracker (Vue Plugin)
 
 ```javascript
-// tracking-plugin.js
-import { UserEventTracker } from 'event-tracker-lib';
-import { TRACKING_CONFIG } from './tracking.config';
+// src/core/tracking/tracking-plugin.js
+import { TRACKING_CONFIG } from '../../config/tracking.config';
 
 export default {
   install(app, { router }) {
     if (typeof window === 'undefined') return;
 
-    const tracker = new UserEventTracker(TRACKING_CONFIG);
+    const EventTracker = window.EventTracker;
+    if (!EventTracker) {
+      console.warn('EventTracker not found on window.');
+      return;
+    }
+
+    const tracker = new EventTracker.UserEventTracker(TRACKING_CONFIG);
     tracker.start();
 
     // Vue Router Page Tracking
     if (router) {
       router.afterEach((to) => {
-        tracker.trackPageView(to.fullPath);
+        tracker.trackPageView(to.fullPath, 'screen_viewed', {});
       });
     }
 
@@ -365,11 +830,11 @@ export default {
 };
 ```
 
-#### 3. Setup in `main.js`
+#### 4. Setup in `main.js` (App Initialization)
 ```javascript
 import { createApp } from 'vue';
 import router from './router';
-import TrackingPlugin from './tracking-plugin';
+import TrackingPlugin from './core/tracking/tracking-plugin';
 import App from './App.vue';
 
 const app = createApp(App);
@@ -378,8 +843,46 @@ app.use(TrackingPlugin, { router });
 app.mount('#app');
 ```
 
-#### 4. Vue Integration AI Prompt
-> "Create a Vue 3 Plugin that initializes a `UserEventTracker` in the browser environment. The plugin should accept the Vue Router instance as an option and use `router.afterEach()` to track page views. Provide the tracker instance via `app.provide` and attach it to `globalProperties`. Then, review my Vue templates and add `data-track-id` tags for all action buttons."
+#### 5. Session Management & Explicit Tracking
+**Login/Logout using Options API:**
+```vue
+<script>
+export default {
+  inject: ['tracker'],
+  methods: {
+    login() {
+      const sessionId = window.crypto?.randomUUID ? window.crypto.randomUUID() : new Date().getTime().toString();
+      localStorage.setItem('X-Session-ID', sessionId);
+      if (this.tracker) {
+        this.tracker.trackEvent('user_logged_in', { role: 'admin' });
+      }
+    },
+    logout() {
+      if (this.tracker) {
+        this.tracker.trackSessionExpired('session_ended', 'manual_logout', 'User logged out');
+      }
+      localStorage.removeItem('X-Session-ID');
+    }
+  }
+}
+</script>
+```
+
+#### 6. Get dynamic value using custom attribute-name
+```vue
+<template>
+  <div 
+    id="time-tracker-quick-filter-chip"
+    :data-chip-type="title"
+    :data-chip-value="JSON.stringify(values)"
+  >
+    {{ title }}
+  </div>
+</template>
+```
+
+#### 7. Vue Integration AI Prompt
+> "Create a Vue 3 Plugin that initializes a `UserEventTracker` in the browser environment. The plugin should accept the Vue Router instance as an option and use `router.afterEach()` to track page views. Provide the tracker instance via `app.provide` and attach it to `globalProperties`. Include Login and Logout logic to manage the `X-Session-ID` in localStorage, triggering `trackSessionExpired` appropriately."
 
 ---
 
@@ -397,25 +900,72 @@ If built using Vite/Webpack as a UMD or IIFE bundle, the library exposes a globa
 </head>
 <body>
   <button id="login-submit-btn">Login</button>
-  <button data-track-id="signup-btn">Sign Up</button>
+  
+  <div id="quick-filter-chip" data-chip-type="Status" data-chip-value='["Active"]'>Filter</div>
+
+  <button id="logout-btn">Logout</button>
 
   <script>
     document.addEventListener("DOMContentLoaded", () => {
       // Access the global variable exposed by the bundle
-      const { UserEventTracker } = window.TrackingLibrary; // Adjust to actual global name
+      const EventTracker = window.EventTracker; 
+      
+      if (!EventTracker) {
+        console.error("Tracker not loaded!");
+        return;
+      }
 
       const config = {
-        apiUrl: 'https://api.example.com/track',
+        apiUrl: 'https://api.yourdomain.com/track',
+        batchSize: 5,
+        sessionHeaderKey: 'X-Session-ID',
+        getSessionId: () => localStorage.getItem('X-Session-ID'),
+        
+        extractDynamicProperties: (element, properties, event) => {
+          if (properties.chip_type !== undefined) {
+            properties.chip_type = element.getAttribute('data-chip-type') || '';
+          }
+          if (properties.chip_value !== undefined) {
+            const attr = element.getAttribute('data-chip-value');
+            try { properties.chip_value = attr ? JSON.parse(attr) : []; } catch(e) { properties.chip_value = attr || []; }
+          }
+        },
+
+        buildPayload: (eventName, properties) => ({
+          eventName,
+          occurredAtUtc: new Date().toISOString(),
+          sessionId: localStorage.getItem('X-Session-ID') || undefined,
+          route: window.location.pathname,
+          screenVariant: 'vanilla-web-app',
+          properties
+        }),
+        
         elementEventMap: {
-          'login_click': [{ targetId: 'login-submit-btn', properties: {} }]
+          'login_submitted': [{ targetId: 'login-submit-btn', properties: {} }],
+          'quick_filter_chip_clicked': [{ targetId: "quick-filter-chip", properties: { chip_type: '', chip_value: [] } }]
         }
       };
 
-      const tracker = new UserEventTracker(config);
+      const tracker = new EventTracker.UserEventTracker(config);
       tracker.start();
 
       // Manual Page Tracking
-      tracker.trackPageView(window.location.pathname);
+      tracker.trackPageView(window.location.pathname, 'screen_viewed', {});
+
+      // Session Management Logic
+      document.getElementById('login-submit-btn').addEventListener('click', () => {
+        const sessionId = window.crypto?.randomUUID ? window.crypto.randomUUID() : new Date().getTime().toString();
+        localStorage.setItem('X-Session-ID', sessionId);
+        tracker.trackEvent('user_logged_in', { role: 'admin' });
+      });
+
+      document.getElementById('logout-btn').addEventListener('click', () => {
+        tracker.trackSessionExpired('session_ended', 'manual_logout', 'User logged out');
+        localStorage.removeItem('X-Session-ID');
+      });
+      
+      // Stop tracking on unload
+      window.addEventListener('beforeunload', () => tracker.stop());
     });
   </script>
 </body>
@@ -423,7 +973,7 @@ If built using Vite/Webpack as a UMD or IIFE bundle, the library exposes a globa
 ```
 
 #### 2. Vanilla JS Integration AI Prompt
-> "I am working on a Vanilla JS HTML page. Please add a `<script>` tag to load the `UserEventTracker` library via CDN. Write an initialization script inside `DOMContentLoaded` that configures the tracker, starts it, and tracks the initial page view. Ensure all `<button>` and `<a>` elements in the HTML have unique `id` attributes that are mapped in the `elementEventMap` configuration."
+> "I am working on a Vanilla JS HTML page. Please add a `<script>` tag to load the `UserEventTracker` library via CDN. Write an initialization script inside `DOMContentLoaded` that configures the tracker (with payload builders and dynamic property extractors), starts it, and tracks the initial page view. Ensure Login and Logout handlers are wired up to update `X-Session-ID` in `localStorage` and clear it using `trackSessionExpired` on logout."
 
 ---
 
