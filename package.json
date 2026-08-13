@@ -1,0 +1,17 @@
+{
+  "name": "user-event-traker",
+  "version": "1.0.0",
+  "description": "",
+  "main": "./dist/user-event-tracker.umd.js",
+  "module": "./dist/user-event-tracker.es.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "vite build"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "vite": "^8.2.1"
+  }
+}
