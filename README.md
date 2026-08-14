@@ -618,10 +618,13 @@ export const TrackingProvider = ({ children }: { children: React.ReactNode }) =>
   const location = useLocation();
 
   useEffect(() => {
-    if (!trackerRef.current && typeof window !== 'undefined') {
+    if (typeof window !== 'undefined') {
       const EventTracker = (window as any).EventTracker;
       if (EventTracker) {
-        trackerRef.current = new EventTracker.UserEventTracker(TRACKING_CONFIG);
+        if (!trackerRef.current) {
+          trackerRef.current = new EventTracker.UserEventTracker(TRACKING_CONFIG);
+        }
+        // Always start tracking when mounted, safely bypassing React 18 strict-mode quirks
         trackerRef.current.start();
       } else {
         console.warn('EventTracker not found on window. Ensure CDN script is loaded.');
