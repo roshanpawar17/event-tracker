@@ -4,6 +4,12 @@
   "description": "",
   "main": "./dist/user-event-tracker.umd.js",
   "module": "./dist/user-event-tracker.es.js",
+  "exports": {
+    ".": {
+      "import": "./dist/user-event-tracker.es.js",
+      "require": "./dist/user-event-tracker.umd.js"
+    }
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "vite build"
