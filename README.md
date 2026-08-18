@@ -212,7 +212,7 @@ The library is completely framework-agnostic. Below are guides to integrate it i
 #### 1. Include/Install the Library
 Install via NPM (if published) or copy the library into your `src/core/tracking` folder. Alternatively, you can include the CDN link in your `src/index.html` file inside the `<head>` tag:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@main/dist/user-event-tracker.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@v1.0.1/dist/user-event-tracker.umd.js"></script>
 ```
 
 #### 2. Initialize the Tracker (Service)
@@ -559,7 +559,7 @@ export class BuildListResultsComponent {
 #### 1. Include/Install the Library
 Install via NPM (if published) or include the CDN link in your `public/index.html` file inside the `<head>` tag:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@main/dist/user-event-tracker.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@v1.0.1/dist/user-event-tracker.umd.js"></script>
 ```
 
 #### 2. Added Tracking Configuration
@@ -760,7 +760,7 @@ function LoginButton() {
 #### 1. Include/Install the Library
 Install via NPM (if published) or include the CDN link in your `public/index.html` (or `index.html`) file inside the `<head>` tag:
 ```html
-<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@main/dist/user-event-tracker.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@v1.0.1/dist/user-event-tracker.umd.js"></script>
 ```
 
 #### 2. Added Tracking Configuration
@@ -902,8 +902,8 @@ If built using Vite/Webpack as a UMD or IIFE bundle, the library exposes a globa
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- Load from CDN -->
-  <script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-trackermain/dist/user-event-tracker.umd.js"></script>
+  <!-- Load from CDN (Use a specific tag like @v1.0.1 to prevent caching issues) -->
+  <script src="https://cdn.jsdelivr.net/gh/roshanpawar17/event-tracker@v1.0.1/dist/user-event-tracker.umd.js"></script>
 </head>
 <body>
   <button id="login-submit-btn">Login</button>
@@ -1239,8 +1239,8 @@ Create an `index.html` file anywhere and include the following:
 <html>
 <head>
   <!-- Load the UMD file directly from your GitHub repo using jsDelivr -->
-  <!-- Format: https://cdn.jsdelivr.net/gh/USERNAME/REPO@BRANCH/PATH_TO_FILE -->
-  <script src="https://cdn.jsdelivr.net/gh/your-org/user-event-tracker@main/dist/user-event-tracker.umd.js"></script>
+  <!-- Format: https://cdn.jsdelivr.net/gh/USERNAME/REPO@TAG/PATH_TO_FILE -->
+  <script src="https://cdn.jsdelivr.net/gh/your-org/user-event-tracker@v1.0.1/dist/user-event-tracker.umd.js"></script>
 </head>
 <body>
   <!-- Element automatically tracked by elementEventMap -->
@@ -1277,7 +1277,38 @@ Create an `index.html` file anywhere and include the following:
 
 ---
 
-## Step 8: Troubleshooting GitHub Deployments
+## Step 8: Managing CDN Cache with GitHub Tags (Best Practice)
+
+Using `@main` in your jsDelivr link is dangerous because the CDN caches files aggressively (often for 24+ hours). If you push an update to `main`, the CDN will continue serving the old file.
+
+To perfectly solve this caching issue, **you must use GitHub Tags** to create an unchangeable snapshot of your code. 
+
+### How to Create and Use a GitHub Tag:
+1. **Build and push your latest code to main** normally.
+2. **Create a tag in your terminal:**
+   ```bash
+   git tag v1.0.1
+   ```
+3. **Push the tag to GitHub:**
+   ```bash
+   git push origin v1.0.1
+   ```
+  or
+
+  ```bash
+   git push --tags // push all tags to github at once
+   ```
+
+4. **Update your CDN link** to use the new tag instead of `@main`:
+   ```html
+   <script src="https://cdn.jsdelivr.net/gh/your-org/user-event-tracker@v1.0.1/dist/user-event-tracker.umd.js"></script>
+   ```
+
+Whenever you release an update, simply create a new tag (`v1.0.2`), push it, and update your HTML file's script URL. The CDN will instantly serve the new version!
+
+---
+
+## Step 9: Troubleshooting GitHub Deployments
 
 If you run into issues while testing the GitHub-hosted library, check the following:
 
